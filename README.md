@@ -6,6 +6,11 @@ External component for ESPHome that integrates Hayward heat pumps using the PC10
 
 This repository avoids a custom ESPHome fork. The integration is implemented as an ESPHome `external_component` that works with current upstream ESPHome and runs on the AtomS3 Lite with the M5Stack RS485 base.
 
+## Compatibility
+
+- supported ESPHome version: up to `2026.2.4`
+- newer ESPHome releases were tested during development and are currently not considered stable for this component
+
 ## Background
 
 This implementation was built from:
