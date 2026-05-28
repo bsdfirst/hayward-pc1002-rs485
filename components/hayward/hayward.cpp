@@ -490,6 +490,9 @@ void Hayward::handle_frame_(const std::vector<uint8_t> &frame) {
 
   ESP_LOGV(TAG, "Frame rx: %s", this->format_frame_(frame).c_str());
 
+  // --- DEBUG BUS SNIFFER: log every frame with full decode ---
+  this->debug_log_frame_(frame);
+
   if ((function_code & 0x80U) != 0U) {
     return;
   }
@@ -526,6 +529,7 @@ void Hayward::handle_read_request_(const std::vector<uint8_t> &frame) {
   request.register_count = static_cast<uint16_t>(frame[4] << 8) | frame[5];
   request.timestamp_ms = millis();
   this->pending_reads_[request.address] = request;
+  this->last_read_request_[request.address] = request;  // debug: keep for late response decode
   ESP_LOGV(TAG, "Read request addr=0x%02X fc=0x%02X start=%u count=%u", request.address, request.function_code,
            request.start_address, request.register_count);
   if (this->send_writes_ && request.address == this->controller_address_ &&
@@ -1202,6 +1206,91 @@ std::string Hayward::format_frame_(const std::vector<uint8_t> &frame) const {
   stream << "addr=0x" << format_hex(frame[0]) << " fc=0x" << format_hex(frame[1]) << " len=" << frame.size()
          << " data=" << format_hex_pretty(frame.data(), frame.size());
   return stream.str();
+}
+
+void Hayward::debug_log_frame_(const std::vector<uint8_t> &frame) {
+  if (frame.size() < 4) return;
+
+  const uint8_t addr = frame[0];
+  const uint8_t fc = frame[1];
+
+  // fc=0x03/0x04 with 8 bytes = read request (addr, fc, start_hi, start_lo, count_hi, count_lo, crc, crc)
+  if ((fc == 0x03 || fc == 0x04) && frame.size() == 8) {
+    const uint16_t start = (frame[2] << 8) | frame[3];
+    const uint16_t count = (frame[4] << 8) | frame[5];
+    ESP_LOGI(TAG, "[BUS] READ_REQ addr=0x%02X start=%u count=%u", addr, start, count);
+    return;
+  }
+
+  // fc=0x03/0x04 with >8 bytes = read response (addr, fc, byte_count, data..., crc, crc)
+  if ((fc == 0x03 || fc == 0x04) && frame.size() > 8) {
+    const uint8_t byte_count = frame[2];
+    const uint16_t reg_count = byte_count / 2;
+    // We need to know the start address from the pending read context
+    // but for the sniffer we just log the raw data with register count
+    // Try to find pending read for this address to get start address
+    auto pending = this->pending_reads_.find(addr);
+    uint16_t start_addr = 0;
+    if (pending != this->pending_reads_.end()) {
+      start_addr = pending->second.start_address;
+    } else {
+      // Pending may have timed out; use last known read request
+      auto last = this->last_read_request_.find(addr);
+      if (last != this->last_read_request_.end()) {
+        start_addr = last->second.start_address;
+        ESP_LOGI(TAG, "[BUS]   (start inferred from last read request)");
+      }
+    }
+    ESP_LOGI(TAG, "[BUS] READ_RESP addr=0x%02X regs=%u start=%u", addr, reg_count, start_addr);
+
+    // Decode key registers if we know the start address
+    if (start_addr > 0 && byte_count >= 2) {
+      for (uint16_t i = 0; i < reg_count && (3 + i * 2 + 1) < frame.size(); i++) {
+        const uint16_t reg = start_addr + i;
+        const uint16_t val = (frame[3 + i * 2] << 8) | frame[3 + i * 2 + 1];
+        // Only log non-zero registers or known interesting ones
+        if (val != 0 || reg == 3011 || reg == 1011 || reg == 1012 || reg == 1013 || reg == 1014) {
+          ESP_LOGI(TAG, "[BUS]   reg %u = 0x%04X (%u)", reg, val, val);
+        }
+      }
+    }
+    return;
+  }
+
+  // fc=0x06 = write single register
+  if (fc == 0x06 && frame.size() >= 6) {
+    const uint16_t reg = (frame[2] << 8) | frame[3];
+    const uint16_t val = (frame[4] << 8) | frame[5];
+    ESP_LOGI(TAG, "[BUS] WRITE_SINGLE addr=0x%02X reg=%u value=0x%04X (%u)", addr, reg, val, val);
+    return;
+  }
+
+  // fc=0x10 = write multiple registers
+  if (fc == 0x10 && frame.size() > 8) {
+    const uint16_t start = (frame[2] << 8) | frame[3];
+    const uint16_t count = (frame[4] << 8) | frame[5];
+    const uint8_t byte_count = frame[6];
+    ESP_LOGI(TAG, "[BUS] WRITE_MULTI addr=0x%02X start=%u count=%u", addr, start, count);
+
+    // Decode key registers in the write payload
+    for (uint16_t i = 0; i < count && (7 + i * 2 + 1) < frame.size(); i++) {
+      const uint16_t reg = start + i;
+      const uint16_t val = (frame[7 + i * 2] << 8) | frame[7 + i * 2 + 1];
+      // Log non-zero values, or always log known control registers
+      if (val != 0 || reg == 3011 || reg == 1011 || reg == 1012 || reg == 1013 || reg == 1014 ||
+          reg == 2019 || reg == 2011 || reg == 2012) {
+        ESP_LOGI(TAG, "[BUS]   reg %u = 0x%04X (%u)", reg, val, val);
+      }
+    }
+    return;
+  }
+
+  // Anything else: log raw
+  if ((fc & 0x80) != 0) {
+    ESP_LOGI(TAG, "[BUS] EXCEPTION addr=0x%02X fc=0x%02X", addr, fc);
+  } else {
+    ESP_LOGI(TAG, "[BUS] UNKNOWN addr=0x%02X fc=0x%02X len=%zu", addr, fc, frame.size());
+  }
 }
 
 }  // namespace esphome::hayward

@@ -227,6 +227,7 @@ class Hayward : public Component, public uart::UARTDevice {
   void handle_write_single_request_(const std::vector<uint8_t> &frame);
   void handle_write_multiple_request_(const std::vector<uint8_t> &frame);
   std::string format_frame_(const std::vector<uint8_t> &frame) const;
+  void debug_log_frame_(const std::vector<uint8_t> &frame);
 
   void clear_stale_pending_reads_();
   void update_register_cache_(uint16_t address, uint16_t value);
@@ -265,6 +266,7 @@ class Hayward : public Component, public uart::UARTDevice {
   std::vector<uint8_t> rx_buffer_;
   std::unordered_map<uint16_t, uint16_t> registers_;
   std::unordered_map<uint8_t, PendingRead> pending_reads_;
+  std::unordered_map<uint8_t, PendingRead> last_read_request_;  // debug: tracks last read req per addr
 
   uint32_t last_byte_ms_{0};
   uint32_t frame_timeout_ms_{15};
