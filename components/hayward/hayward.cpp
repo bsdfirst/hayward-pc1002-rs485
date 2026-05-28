@@ -154,7 +154,7 @@ climate::ClimateTraits HaywardClimate::traits() {
       climate::CLIMATE_PRESET_ECO,
   });
   traits.set_visual_min_temperature(15.0f);
-  traits.set_visual_max_temperature(35.0f);
+  traits.set_visual_max_temperature(38.0f);
   traits.set_visual_temperature_step(0.5f);
   return traits;
 }
@@ -1012,7 +1012,7 @@ void Hayward::publish_climate_() {
   } else if (std::isnan(this->hayward_climate_->target_temperature) &&
              !std::isnan(this->hayward_climate_->current_temperature)) {
     // Keep the climate entity operable even before the settings registers appear on the bus.
-    const float fallback_target = clamp(this->hayward_climate_->current_temperature, 15.0f, 35.0f);
+    const float fallback_target = clamp(this->hayward_climate_->current_temperature, 15.0f, 38.0f);
     this->hayward_climate_->target_temperature = fallback_target;
     changed = true;
   }
