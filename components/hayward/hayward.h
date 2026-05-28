@@ -270,7 +270,7 @@ class Hayward : public Component, public uart::UARTDevice {
 
   uint32_t last_byte_ms_{0};
   uint32_t frame_timeout_ms_{15};
-  uint8_t controller_address_{0x02};
+  uint8_t controller_address_{0x01};
   uint8_t broadcast_address_{0x00};
   bool send_writes_{false};
   bool has_settings_snapshot_{false};
